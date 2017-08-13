@@ -35,6 +35,9 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 function createWindow () {
+  if (process.platform === 'darwin') {
+    app.dock.hide()
+  }
   /**
    * Initial window options
    */
@@ -80,7 +83,9 @@ function showWindow() {
 
 function quitHandler() {
   client.stop()
-  mainWindow.destroy()
+  if (mainWindow) {
+    mainWindow.destroy()
+  }
   tray.destroy()
   app.quit()
 }
@@ -105,7 +110,7 @@ app.on('ready', () => {
   if (storedConfig.pyPath) {
     client.setup(storedConfig.pyPath)
     // if enable then start
-    if (storedConfig.enable) {
+    if (storedConfig.enable && storedConfig.configs[storedConfig.selected]) {
       client.run(storedConfig.enable, storedConfig.configs[storedConfig.selected])
     }
   }
@@ -121,6 +126,9 @@ app.on('ready', () => {
     if (selectedConfigIndex > -1) {
       // exec python command
       client.run(enable, storedConfig.configs[selectedConfigIndex])
+    }
+    if (!enable) {
+      client.stop()
     }
   }).on('change-auto-launch', (isAutoLaunch) => {
     storedConfig.autoLaunch = isAutoLaunch
@@ -138,8 +146,10 @@ app.on('ready', () => {
     if (index > -1) {
       client.run(storedConfig.enable, storedConfig.configs[index])
     }
-  }).on('exit', quitHandler).on('open', showWindow).on('open-devtool', () => {
-    mainWindow.webContents.openDevTools()
+  }).on('exit', quitHandler).on('open', showWindow).on('open-config', () => {
+    if (!shell.openItem(storage.getConfigPath())) {
+      console.error('Error to open config file.')
+    }
   }).on('open-log', () => {
     if (!shell.openItem(storage.getLogPath())) {
       console.error('Error to open log file.')
@@ -191,15 +201,21 @@ ipcMain.on('resize', (e, width, height) => {
 }).on('update-config', (e, field, value) => {
   // save config
   storedConfig[field] = value
-  storage.saveConfig()
   if (field === 'configs') {
     // refresh tray menu list
-    tray.refreshConfigs(value, storedConfig.selected)
-    if (value.length && storedConfig.selected < 0) {
-      storedConfig.selected = value.length - 1
-      client.run(storedConfig.enable, value[value.length - 1])
+    tray.refreshConfigs(storedConfig.configs, storedConfig.selected)
+    if (value.length) {
+      if (storedConfig.selected < 0) {
+        storedConfig.selected = value.length - 1
+      }
+      client.run(storedConfig.enable, value[storedConfig.selected])
+    } else {
+      storedConfig.selected = -1
+      storedConfig.enable = false
+      client.stop()
     }
   }
+  storage.saveConfig()
 }).on('re-init', e => {
   e.sender.send('init-config', storedConfig)
 }).on('scaned-config', (e, newConfig) => {
